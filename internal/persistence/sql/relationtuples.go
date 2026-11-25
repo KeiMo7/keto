@@ -338,17 +338,34 @@ func (p *Persister) WriteRelationTuples(ctx context.Context, rs ...*relationtupl
 	commitTime := time.Now()
 
 	return p.Transaction(ctx, func(ctx context.Context) error {
+		dialect := p.Connection(ctx).Dialect.Name()
 		for chunk := range slices.Chunk(rs, chunkSizeInsertTuple) {
 			q, args, err := buildInsert(p.d.NewShardID, commitTime, p.NetworkID(ctx), chunk)
 			if err != nil {
 				return err
 			}
+			q = ignoreDuplicateInsert(dialect, q)
 			if err := p.Connection(ctx).RawQuery(q, args...).Exec(); err != nil {
 				return sqlcon.HandleError(err)
 			}
 		}
 		return nil
 	})
+}
+
+// ignoreDuplicateInsert makes the legacy single/bulk direct-write path
+// idempotent under the logical-relation unique index: re-adding an existing
+// relation is a no-op instead of a 409, preserving the historical 201 write
+// behavior. This is storage-level conflict handling, not check-then-write.
+// The ordered batch path uses its own plain inserts so genuine concurrent
+// races are still surfaced as retryable conflicts.
+func ignoreDuplicateInsert(dialect, query string) string {
+	switch dialect {
+	case "mysql":
+		return strings.Replace(query, "INSERT INTO", "INSERT IGNORE INTO", 1)
+	default: // sqlite3, postgres, cockroach
+		return query + " ON CONFLICT DO NOTHING"
+	}
 }
 
 func (p *Persister) TransactRelationTuples(ctx context.Context, ins []*relationtuple.RelationTuple, del []*relationtuple.RelationTuple) (err error) {

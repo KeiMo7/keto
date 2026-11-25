@@ -24,6 +24,59 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// Existence precondition for one delta, evaluated in request order.
+type RelationTupleDeltaCondition int32
+
+const (
+	// No precondition; today's behavior.
+	RelationTupleDeltaCondition_RELATION_TUPLE_DELTA_CONDITION_UNSPECIFIED RelationTupleDeltaCondition = 0
+	// The relation must not exist at this point in the batch.
+	RelationTupleDeltaCondition_RELATION_TUPLE_DELTA_CONDITION_IF_ABSENT RelationTupleDeltaCondition = 1
+	// The relation must exist at this point in the batch.
+	RelationTupleDeltaCondition_RELATION_TUPLE_DELTA_CONDITION_IF_PRESENT RelationTupleDeltaCondition = 2
+)
+
+// Enum value maps for RelationTupleDeltaCondition.
+var (
+	RelationTupleDeltaCondition_name = map[int32]string{
+		0: "RELATION_TUPLE_DELTA_CONDITION_UNSPECIFIED",
+		1: "RELATION_TUPLE_DELTA_CONDITION_IF_ABSENT",
+		2: "RELATION_TUPLE_DELTA_CONDITION_IF_PRESENT",
+	}
+	RelationTupleDeltaCondition_value = map[string]int32{
+		"RELATION_TUPLE_DELTA_CONDITION_UNSPECIFIED": 0,
+		"RELATION_TUPLE_DELTA_CONDITION_IF_ABSENT":   1,
+		"RELATION_TUPLE_DELTA_CONDITION_IF_PRESENT":  2,
+	}
+)
+
+func (x RelationTupleDeltaCondition) Enum() *RelationTupleDeltaCondition {
+	p := new(RelationTupleDeltaCondition)
+	*p = x
+	return p
+}
+
+func (x RelationTupleDeltaCondition) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (RelationTupleDeltaCondition) Descriptor() protoreflect.EnumDescriptor {
+	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_enumTypes[0].Descriptor()
+}
+
+func (RelationTupleDeltaCondition) Type() protoreflect.EnumType {
+	return &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_enumTypes[0]
+}
+
+func (x RelationTupleDeltaCondition) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use RelationTupleDeltaCondition.Descriptor instead.
+func (RelationTupleDeltaCondition) EnumDescriptor() ([]byte, []int) {
+	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP(), []int{0}
+}
+
 type RelationTupleDelta_Action int32
 
 const (
@@ -63,11 +116,11 @@ func (x RelationTupleDelta_Action) String() string {
 }
 
 func (RelationTupleDelta_Action) Descriptor() protoreflect.EnumDescriptor {
-	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_enumTypes[0].Descriptor()
+	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_enumTypes[1].Descriptor()
 }
 
 func (RelationTupleDelta_Action) Type() protoreflect.EnumType {
-	return &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_enumTypes[0]
+	return &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_enumTypes[1]
 }
 
 func (x RelationTupleDelta_Action) Number() protoreflect.EnumNumber {
@@ -85,8 +138,12 @@ type TransactRelationTuplesRequest struct {
 	// The write delta for the relationships operated in one single transaction.
 	// Either all actions succeed or no change takes effect on error.
 	RelationTupleDeltas []*RelationTupleDelta `protobuf:"bytes,1,rep,name=relation_tuple_deltas,json=relationTupleDeltas,proto3" json:"relation_tuple_deltas,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// Optional request-level idempotency key. Replaying the same key within
+	// its retention window returns the exact first response without writing
+	// again. Reusing a key for different request content is rejected.
+	IdempotencyKey string `protobuf:"bytes,2,opt,name=idempotency_key,json=idempotencyKey,proto3" json:"idempotency_key,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *TransactRelationTuplesRequest) Reset() {
@@ -126,6 +183,13 @@ func (x *TransactRelationTuplesRequest) GetRelationTupleDeltas() []*RelationTupl
 	return nil
 }
 
+func (x *TransactRelationTuplesRequest) GetIdempotencyKey() string {
+	if x != nil {
+		return x.IdempotencyKey
+	}
+	return ""
+}
+
 // Write-delta for a TransactRelationTuplesRequest.
 type RelationTupleDelta struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -133,8 +197,15 @@ type RelationTupleDelta struct {
 	Action RelationTupleDelta_Action `protobuf:"varint,1,opt,name=action,proto3,enum=ory.keto.relation_tuples.v1alpha2.RelationTupleDelta_Action" json:"action,omitempty"`
 	// The target RelationTuple.
 	RelationTuple *RelationTuple `protobuf:"bytes,2,opt,name=relation_tuple,json=relationTuple,proto3" json:"relation_tuple,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// Optional existence precondition for this delta. New capabilities are
+	// optional and leave the default behavior unchanged.
+	Condition RelationTupleDeltaCondition `protobuf:"varint,3,opt,name=condition,proto3,enum=ory.keto.relation_tuples.v1alpha2.RelationTupleDeltaCondition" json:"condition,omitempty"`
+	// Optional opaque version token previously returned for the same relation.
+	// A mismatch aborts the whole batch with a conflict. Tokens are optimistic
+	// concurrency cursors and never credentials.
+	ExpectedVersion string `protobuf:"bytes,4,opt,name=expected_version,json=expectedVersion,proto3" json:"expected_version,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *RelationTupleDelta) Reset() {
@@ -181,26 +252,102 @@ func (x *RelationTupleDelta) GetRelationTuple() *RelationTuple {
 	return nil
 }
 
+func (x *RelationTupleDelta) GetCondition() RelationTupleDeltaCondition {
+	if x != nil {
+		return x.Condition
+	}
+	return RelationTupleDeltaCondition_RELATION_TUPLE_DELTA_CONDITION_UNSPECIFIED
+}
+
+func (x *RelationTupleDelta) GetExpectedVersion() string {
+	if x != nil {
+		return x.ExpectedVersion
+	}
+	return ""
+}
+
+// The per-item outcome of one batch delta.
+type BatchItemResult struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Request-order index, equal to the delta index.
+	Index int32 `protobuf:"varint,1,opt,name=index,proto3" json:"index,omitempty"`
+	// One of: created, unchanged, deleted, not_found.
+	Outcome string `protobuf:"bytes,2,opt,name=outcome,proto3" json:"outcome,omitempty"`
+	// Opaque version token for the resulting state of the relation.
+	VersionToken  string `protobuf:"bytes,3,opt,name=version_token,json=versionToken,proto3" json:"version_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *BatchItemResult) Reset() {
+	*x = BatchItemResult{}
+	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *BatchItemResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*BatchItemResult) ProtoMessage() {}
+
+func (x *BatchItemResult) ProtoReflect() protoreflect.Message {
+	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use BatchItemResult.ProtoReflect.Descriptor instead.
+func (*BatchItemResult) Descriptor() ([]byte, []int) {
+	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *BatchItemResult) GetIndex() int32 {
+	if x != nil {
+		return x.Index
+	}
+	return 0
+}
+
+func (x *BatchItemResult) GetOutcome() string {
+	if x != nil {
+		return x.Outcome
+	}
+	return ""
+}
+
+func (x *BatchItemResult) GetVersionToken() string {
+	if x != nil {
+		return x.VersionToken
+	}
+	return ""
+}
+
 // The response of a WriteService.TransactRelationTuples rpc.
 type TransactRelationTuplesResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// This field is not implemented yet and has no effect.
-	// <!--
-	// The list of the new latest snapshot tokens of the affected RelationTuple,
-	// with the same index as specified in the `relation_tuple_deltas` field of
-	// the TransactRelationTuplesRequest request.
-	//
-	// If the RelationTupleDelta_Action was DELETE
-	// the snaptoken is empty at the same index.
-	// -->
-	Snaptokens    []string `protobuf:"bytes,1,rep,name=snaptokens,proto3" json:"snaptokens,omitempty"`
+	// Opaque version tokens, one per delta in request order. These are real,
+	// non-reversible tokens and the length always equals the number of deltas.
+	Snaptokens []string `protobuf:"bytes,1,rep,name=snaptokens,proto3" json:"snaptokens,omitempty"`
+	// Per-delta outcomes in request order, with equal count to the request.
+	Results []*BatchItemResult `protobuf:"bytes,2,rep,name=results,proto3" json:"results,omitempty"`
+	// True when this response is the stored first result of an idempotent
+	// replay (no write happened for this call).
+	Replayed      bool `protobuf:"varint,3,opt,name=replayed,proto3" json:"replayed,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *TransactRelationTuplesResponse) Reset() {
 	*x = TransactRelationTuplesResponse{}
-	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[2]
+	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -212,7 +359,7 @@ func (x *TransactRelationTuplesResponse) String() string {
 func (*TransactRelationTuplesResponse) ProtoMessage() {}
 
 func (x *TransactRelationTuplesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[2]
+	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -225,7 +372,7 @@ func (x *TransactRelationTuplesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TransactRelationTuplesResponse.ProtoReflect.Descriptor instead.
 func (*TransactRelationTuplesResponse) Descriptor() ([]byte, []int) {
-	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP(), []int{2}
+	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *TransactRelationTuplesResponse) GetSnaptokens() []string {
@@ -233,6 +380,20 @@ func (x *TransactRelationTuplesResponse) GetSnaptokens() []string {
 		return x.Snaptokens
 	}
 	return nil
+}
+
+func (x *TransactRelationTuplesResponse) GetResults() []*BatchItemResult {
+	if x != nil {
+		return x.Results
+	}
+	return nil
+}
+
+func (x *TransactRelationTuplesResponse) GetReplayed() bool {
+	if x != nil {
+		return x.Replayed
+	}
+	return false
 }
 
 type DeleteRelationTuplesRequest struct {
@@ -246,7 +407,7 @@ type DeleteRelationTuplesRequest struct {
 
 func (x *DeleteRelationTuplesRequest) Reset() {
 	*x = DeleteRelationTuplesRequest{}
-	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[3]
+	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -258,7 +419,7 @@ func (x *DeleteRelationTuplesRequest) String() string {
 func (*DeleteRelationTuplesRequest) ProtoMessage() {}
 
 func (x *DeleteRelationTuplesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[3]
+	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -271,7 +432,7 @@ func (x *DeleteRelationTuplesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRelationTuplesRequest.ProtoReflect.Descriptor instead.
 func (*DeleteRelationTuplesRequest) Descriptor() ([]byte, []int) {
-	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP(), []int{3}
+	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP(), []int{4}
 }
 
 // Deprecated: Marked as deprecated in ory/keto/relation_tuples/v1alpha2/write_service.proto.
@@ -297,7 +458,7 @@ type DeleteRelationTuplesResponse struct {
 
 func (x *DeleteRelationTuplesResponse) Reset() {
 	*x = DeleteRelationTuplesResponse{}
-	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[4]
+	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -309,7 +470,7 @@ func (x *DeleteRelationTuplesResponse) String() string {
 func (*DeleteRelationTuplesResponse) ProtoMessage() {}
 
 func (x *DeleteRelationTuplesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[4]
+	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -322,7 +483,7 @@ func (x *DeleteRelationTuplesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteRelationTuplesResponse.ProtoReflect.Descriptor instead.
 func (*DeleteRelationTuplesResponse) Descriptor() ([]byte, []int) {
-	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP(), []int{4}
+	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP(), []int{5}
 }
 
 // The query for deleting relationships
@@ -342,7 +503,7 @@ type DeleteRelationTuplesRequest_Query struct {
 
 func (x *DeleteRelationTuplesRequest_Query) Reset() {
 	*x = DeleteRelationTuplesRequest_Query{}
-	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[5]
+	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -354,7 +515,7 @@ func (x *DeleteRelationTuplesRequest_Query) String() string {
 func (*DeleteRelationTuplesRequest_Query) ProtoMessage() {}
 
 func (x *DeleteRelationTuplesRequest_Query) ProtoReflect() protoreflect.Message {
-	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[5]
+	mi := &file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -367,7 +528,7 @@ func (x *DeleteRelationTuplesRequest_Query) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use DeleteRelationTuplesRequest_Query.ProtoReflect.Descriptor instead.
 func (*DeleteRelationTuplesRequest_Query) Descriptor() ([]byte, []int) {
-	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP(), []int{3, 0}
+	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP(), []int{4, 0}
 }
 
 func (x *DeleteRelationTuplesRequest_Query) GetNamespace() string {
@@ -402,20 +563,29 @@ var File_ory_keto_relation_tuples_v1alpha2_write_service_proto protoreflect.File
 
 const file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDesc = "" +
 	"\n" +
-	"5ory/keto/relation_tuples/v1alpha2/write_service.proto\x12!ory.keto.relation_tuples.v1alpha2\x1a7ory/keto/relation_tuples/v1alpha2/relation_tuples.proto\"\x8a\x01\n" +
+	"5ory/keto/relation_tuples/v1alpha2/write_service.proto\x12!ory.keto.relation_tuples.v1alpha2\x1a7ory/keto/relation_tuples/v1alpha2/relation_tuples.proto\"\xb3\x01\n" +
 	"\x1dTransactRelationTuplesRequest\x12i\n" +
-	"\x15relation_tuple_deltas\x18\x01 \x03(\v25.ory.keto.relation_tuples.v1alpha2.RelationTupleDeltaR\x13relationTupleDeltas\"\x8b\x02\n" +
+	"\x15relation_tuple_deltas\x18\x01 \x03(\v25.ory.keto.relation_tuples.v1alpha2.RelationTupleDeltaR\x13relationTupleDeltas\x12'\n" +
+	"\x0fidempotency_key\x18\x02 \x01(\tR\x0eidempotencyKey\"\x94\x03\n" +
 	"\x12RelationTupleDelta\x12T\n" +
 	"\x06action\x18\x01 \x01(\x0e2<.ory.keto.relation_tuples.v1alpha2.RelationTupleDelta.ActionR\x06action\x12W\n" +
-	"\x0erelation_tuple\x18\x02 \x01(\v20.ory.keto.relation_tuples.v1alpha2.RelationTupleR\rrelationTuple\"F\n" +
+	"\x0erelation_tuple\x18\x02 \x01(\v20.ory.keto.relation_tuples.v1alpha2.RelationTupleR\rrelationTuple\x12\\\n" +
+	"\tcondition\x18\x03 \x01(\x0e2>.ory.keto.relation_tuples.v1alpha2.RelationTupleDeltaConditionR\tcondition\x12)\n" +
+	"\x10expected_version\x18\x04 \x01(\tR\x0fexpectedVersion\"F\n" +
 	"\x06Action\x12\x16\n" +
 	"\x12ACTION_UNSPECIFIED\x10\x00\x12\x11\n" +
 	"\rACTION_INSERT\x10\x01\x12\x11\n" +
-	"\rACTION_DELETE\x10\x02\"@\n" +
+	"\rACTION_DELETE\x10\x02\"f\n" +
+	"\x0fBatchItemResult\x12\x14\n" +
+	"\x05index\x18\x01 \x01(\x05R\x05index\x12\x18\n" +
+	"\aoutcome\x18\x02 \x01(\tR\aoutcome\x12#\n" +
+	"\rversion_token\x18\x03 \x01(\tR\fversionToken\"\xaa\x01\n" +
 	"\x1eTransactRelationTuplesResponse\x12\x1e\n" +
 	"\n" +
 	"snaptokens\x18\x01 \x03(\tR\n" +
-	"snaptokens\"\xf8\x02\n" +
+	"snaptokens\x12L\n" +
+	"\aresults\x18\x02 \x03(\v22.ory.keto.relation_tuples.v1alpha2.BatchItemResultR\aresults\x12\x1a\n" +
+	"\breplayed\x18\x03 \x01(\bR\breplayed\"\xf8\x02\n" +
 	"\x1bDeleteRelationTuplesRequest\x12^\n" +
 	"\x05query\x18\x01 \x01(\v2D.ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.QueryB\x02\x18\x01R\x05query\x12W\n" +
 	"\x0erelation_query\x18\x02 \x01(\v20.ory.keto.relation_tuples.v1alpha2.RelationQueryR\rrelationQuery\x1a\x9f\x01\n" +
@@ -424,7 +594,11 @@ const file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDesc = "" +
 	"\x06object\x18\x02 \x01(\tR\x06object\x12\x1a\n" +
 	"\brelation\x18\x03 \x01(\tR\brelation\x12D\n" +
 	"\asubject\x18\x04 \x01(\v2*.ory.keto.relation_tuples.v1alpha2.SubjectR\asubject\"\x1e\n" +
-	"\x1cDeleteRelationTuplesResponse2\xc8\x02\n" +
+	"\x1cDeleteRelationTuplesResponse*\xaa\x01\n" +
+	"\x1bRelationTupleDeltaCondition\x12.\n" +
+	"*RELATION_TUPLE_DELTA_CONDITION_UNSPECIFIED\x10\x00\x12,\n" +
+	"(RELATION_TUPLE_DELTA_CONDITION_IF_ABSENT\x10\x01\x12-\n" +
+	")RELATION_TUPLE_DELTA_CONDITION_IF_PRESENT\x10\x022\xc8\x02\n" +
 	"\fWriteService\x12\x9d\x01\n" +
 	"\x16TransactRelationTuples\x12@.ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesRequest\x1aA.ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesResponse\x12\x97\x01\n" +
 	"\x14DeleteRelationTuples\x12>.ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest\x1a?.ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesResponseB\xaa\x02\n" +
@@ -442,36 +616,40 @@ func file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescGZIP() []
 	return file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDescData
 }
 
-var file_ory_keto_relation_tuples_v1alpha2_write_service_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_ory_keto_relation_tuples_v1alpha2_write_service_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_ory_keto_relation_tuples_v1alpha2_write_service_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_ory_keto_relation_tuples_v1alpha2_write_service_proto_goTypes = []any{
-	(RelationTupleDelta_Action)(0),            // 0: ory.keto.relation_tuples.v1alpha2.RelationTupleDelta.Action
-	(*TransactRelationTuplesRequest)(nil),     // 1: ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesRequest
-	(*RelationTupleDelta)(nil),                // 2: ory.keto.relation_tuples.v1alpha2.RelationTupleDelta
-	(*TransactRelationTuplesResponse)(nil),    // 3: ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesResponse
-	(*DeleteRelationTuplesRequest)(nil),       // 4: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest
-	(*DeleteRelationTuplesResponse)(nil),      // 5: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesResponse
-	(*DeleteRelationTuplesRequest_Query)(nil), // 6: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.Query
-	(*RelationTuple)(nil),                     // 7: ory.keto.relation_tuples.v1alpha2.RelationTuple
-	(*RelationQuery)(nil),                     // 8: ory.keto.relation_tuples.v1alpha2.RelationQuery
-	(*Subject)(nil),                           // 9: ory.keto.relation_tuples.v1alpha2.Subject
+	(RelationTupleDeltaCondition)(0),          // 0: ory.keto.relation_tuples.v1alpha2.RelationTupleDeltaCondition
+	(RelationTupleDelta_Action)(0),            // 1: ory.keto.relation_tuples.v1alpha2.RelationTupleDelta.Action
+	(*TransactRelationTuplesRequest)(nil),     // 2: ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesRequest
+	(*RelationTupleDelta)(nil),                // 3: ory.keto.relation_tuples.v1alpha2.RelationTupleDelta
+	(*BatchItemResult)(nil),                   // 4: ory.keto.relation_tuples.v1alpha2.BatchItemResult
+	(*TransactRelationTuplesResponse)(nil),    // 5: ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesResponse
+	(*DeleteRelationTuplesRequest)(nil),       // 6: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest
+	(*DeleteRelationTuplesResponse)(nil),      // 7: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesResponse
+	(*DeleteRelationTuplesRequest_Query)(nil), // 8: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.Query
+	(*RelationTuple)(nil),                     // 9: ory.keto.relation_tuples.v1alpha2.RelationTuple
+	(*RelationQuery)(nil),                     // 10: ory.keto.relation_tuples.v1alpha2.RelationQuery
+	(*Subject)(nil),                           // 11: ory.keto.relation_tuples.v1alpha2.Subject
 }
 var file_ory_keto_relation_tuples_v1alpha2_write_service_proto_depIdxs = []int32{
-	2, // 0: ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesRequest.relation_tuple_deltas:type_name -> ory.keto.relation_tuples.v1alpha2.RelationTupleDelta
-	0, // 1: ory.keto.relation_tuples.v1alpha2.RelationTupleDelta.action:type_name -> ory.keto.relation_tuples.v1alpha2.RelationTupleDelta.Action
-	7, // 2: ory.keto.relation_tuples.v1alpha2.RelationTupleDelta.relation_tuple:type_name -> ory.keto.relation_tuples.v1alpha2.RelationTuple
-	6, // 3: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.query:type_name -> ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.Query
-	8, // 4: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.relation_query:type_name -> ory.keto.relation_tuples.v1alpha2.RelationQuery
-	9, // 5: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.Query.subject:type_name -> ory.keto.relation_tuples.v1alpha2.Subject
-	1, // 6: ory.keto.relation_tuples.v1alpha2.WriteService.TransactRelationTuples:input_type -> ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesRequest
-	4, // 7: ory.keto.relation_tuples.v1alpha2.WriteService.DeleteRelationTuples:input_type -> ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest
-	3, // 8: ory.keto.relation_tuples.v1alpha2.WriteService.TransactRelationTuples:output_type -> ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesResponse
-	5, // 9: ory.keto.relation_tuples.v1alpha2.WriteService.DeleteRelationTuples:output_type -> ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesResponse
-	8, // [8:10] is the sub-list for method output_type
-	6, // [6:8] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	3,  // 0: ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesRequest.relation_tuple_deltas:type_name -> ory.keto.relation_tuples.v1alpha2.RelationTupleDelta
+	1,  // 1: ory.keto.relation_tuples.v1alpha2.RelationTupleDelta.action:type_name -> ory.keto.relation_tuples.v1alpha2.RelationTupleDelta.Action
+	9,  // 2: ory.keto.relation_tuples.v1alpha2.RelationTupleDelta.relation_tuple:type_name -> ory.keto.relation_tuples.v1alpha2.RelationTuple
+	0,  // 3: ory.keto.relation_tuples.v1alpha2.RelationTupleDelta.condition:type_name -> ory.keto.relation_tuples.v1alpha2.RelationTupleDeltaCondition
+	4,  // 4: ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesResponse.results:type_name -> ory.keto.relation_tuples.v1alpha2.BatchItemResult
+	8,  // 5: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.query:type_name -> ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.Query
+	10, // 6: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.relation_query:type_name -> ory.keto.relation_tuples.v1alpha2.RelationQuery
+	11, // 7: ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest.Query.subject:type_name -> ory.keto.relation_tuples.v1alpha2.Subject
+	2,  // 8: ory.keto.relation_tuples.v1alpha2.WriteService.TransactRelationTuples:input_type -> ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesRequest
+	6,  // 9: ory.keto.relation_tuples.v1alpha2.WriteService.DeleteRelationTuples:input_type -> ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesRequest
+	5,  // 10: ory.keto.relation_tuples.v1alpha2.WriteService.TransactRelationTuples:output_type -> ory.keto.relation_tuples.v1alpha2.TransactRelationTuplesResponse
+	7,  // 11: ory.keto.relation_tuples.v1alpha2.WriteService.DeleteRelationTuples:output_type -> ory.keto.relation_tuples.v1alpha2.DeleteRelationTuplesResponse
+	10, // [10:12] is the sub-list for method output_type
+	8,  // [8:10] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_ory_keto_relation_tuples_v1alpha2_write_service_proto_init() }
@@ -485,8 +663,8 @@ func file_ory_keto_relation_tuples_v1alpha2_write_service_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDesc), len(file_ory_keto_relation_tuples_v1alpha2_write_service_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   6,
+			NumEnums:      2,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

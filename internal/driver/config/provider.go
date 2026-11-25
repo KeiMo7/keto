@@ -44,6 +44,14 @@ const (
 	KeyBatchCheckMaxBatchSize         = "limit.max_batch_check_size"
 	KeyBatchCheckParallelizationLimit = "limit.batch_check_max_parallelization"
 
+	// KeyMaxWriteBatchSize caps the number of items accepted by one batch
+	// write (HTTP PATCH / TransactRelationTuples / detailed batch endpoint).
+	// 0 means unlimited, which preserves the historical behavior.
+	KeyMaxWriteBatchSize = "limit.max_write_batch_size"
+	// KeyWriteIdempotencyTTLSeconds bounds how long idempotency records are
+	// retained. 0 means records never expire.
+	KeyWriteIdempotencyTTLSeconds = "limit.write_idempotency_ttl_seconds"
+
 	KeyReadAPIHost         = "serve." + string(EndpointRead) + ".host"
 	KeyReadAPIPort         = "serve." + string(EndpointRead) + ".port"
 	KeyReadAPIListenFile   = "serve." + string(EndpointRead) + ".write_listen_file"
@@ -215,6 +223,30 @@ func (k *Config) BatchCheckMaxBatchSize() int {
 
 func (k *Config) BatchCheckParallelizationLimit() int {
 	return k.p.Int(KeyBatchCheckParallelizationLimit)
+}
+
+// MaxWriteBatchSize returns the configured maximum batch-write size. A value
+// of 0 (the default) means unlimited and preserves historical behavior.
+func (k *Config) MaxWriteBatchSize() int {
+	return k.p.IntF(KeyMaxWriteBatchSize, 0)
+}
+
+// WriteIdempotencyTTLSeconds returns the idempotency retention in seconds.
+// The default is 24h; 0 means no expiry.
+func (k *Config) WriteIdempotencyTTLSeconds() int {
+	return k.p.IntF(KeyWriteIdempotencyTTLSeconds, 24*60*60)
+}
+
+// BatchTokenSecret derives the secret used to encrypt/authenticate opaque
+// batch version tokens. It reuses the pagination secret when present and
+// otherwise falls back to a static development default. Tokens remain opaque
+// and non-reversible in all cases; production installs should set
+// secrets.pagination.
+func (k *Config) BatchTokenSecret() string {
+	if secs := k.p.Strings(KeySecretsPagination); len(secs) > 0 && secs[0] != "" {
+		return "pagination:" + secs[0]
+	}
+	return "default-batch-token-secret"
 }
 
 func (k *Config) ExpandMaxTupleCount() int {

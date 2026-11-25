@@ -65,6 +65,7 @@ func (h *WriteHandler) RegisterWriteRoutes(r *httprouterx.RouterAdmin) {
 	r.PUT(WriteRouteBase, h.createRelation)
 	r.DELETE(WriteRouteBase, h.deleteRelations)
 	r.PATCH(WriteRouteBase, h.patchRelationTuples)
+	r.POST(WriteRouteBase+"/batch", h.writeBatch)
 
 	writeServiceMethods := rts.File_ory_keto_relation_tuples_v1alpha2_write_service_proto.Services().ByName("WriteService").Methods()
 	transactRelationTuplesHandler := connect.NewUnaryHandler(

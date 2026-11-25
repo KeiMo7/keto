@@ -431,6 +431,22 @@
           "description": "The maximum total number of relation tuples the expand engine will return in a single BuildTree call. Once the limit is reached, further nodes are returned as truncated.",
           "minimum": 0,
           "maximum": 65535
+        },
+        "max_write_batch_size": {
+          "type": "integer",
+          "default": 0,
+          "title": "Maximum batch write size",
+          "description": "Maximum number of items accepted in one batch write. Requests exceeding it are rejected before touching the database and the limit is reported. Exactly the limit is allowed. 0 (default) means unlimited.",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "write_idempotency_ttl_seconds": {
+          "type": "integer",
+          "default": 86400,
+          "title": "Idempotency record retention in seconds",
+          "description": "How long a request idempotency key and its first response are retained persistently. Replays within the window return the identical outcome without writing again. After expiry the key is treated as a new request. 0 means no expiry.",
+          "minimum": 0,
+          "maximum": 315360000
         }
       },
       "additionalProperties": false

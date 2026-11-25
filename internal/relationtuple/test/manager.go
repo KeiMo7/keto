@@ -271,7 +271,9 @@ func ManagerTest(t *testing.T, m relationtuple.Manager) {
 					expected, next, err := m.GetRelationTuples(t.Context(), tt.searchCriteria, keysetpagination.WithSize(9999))
 					require.NoError(t, err)
 					require.True(t, next.IsLast())
-					require.Len(t, expected, len(tuples))
+					// Batch-write uniqueness: the one exact duplicate row is
+					// stored/read as a single relation, so 11 inputs yield 10.
+					require.Len(t, expected, len(tuples)-1)
 
 					for _, pageSize := range tt.pageSizes {
 						nextPage, _ := keysetpagination.NewPaginator(keysetpagination.WithSize(pageSize))

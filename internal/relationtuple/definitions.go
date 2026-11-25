@@ -6,6 +6,7 @@ package relationtuple
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/gofrs/uuid"
 	keysetpagination "github.com/ory/x/pagination/keysetpagination_v2"
@@ -35,6 +36,17 @@ type (
 		DeleteRelationTuples(ctx context.Context, rs ...*RelationTuple) error
 		DeleteAllRelationTuples(ctx context.Context, query *RelationQuery) error
 		TransactRelationTuples(ctx context.Context, insert []*RelationTuple, delete []*RelationTuple) error
+
+		// FindIdempotencyRecord loads a persisted idempotency envelope by key
+		// within the request network. It returns (nil, nil) when no usable
+		// (non-expired) record exists.
+		FindIdempotencyRecord(ctx context.Context, key string) (*IdempotencyRecord, error)
+		// BatchWrite executes the ordered batch contract inside the caller's
+		// transaction: idempotency claim, stored-state load, planning and
+		// collapsed writes. All or nothing. It returns per-item results in
+		// request order; replayed is true when an idempotency record supplied
+		// the stored first response.
+		BatchWrite(ctx context.Context, exec *BatchExecution, key, requestHash, requestPayload string, ttl time.Duration) (results []ItemResult, replayed bool, err error)
 		// TraverseSubjectSetExpansion gets all subject sets for the tuple's
 		// object#relation and checks whether the tuple's subject is a member of
 		// each. When allowedSubjectSets is non-empty, only subject-set pointers
@@ -251,6 +263,14 @@ func (t *ManagerWrapper) DeleteAllRelationTuples(ctx context.Context, query *Rel
 
 func (t *ManagerWrapper) TransactRelationTuples(ctx context.Context, insert []*RelationTuple, delete []*RelationTuple) error {
 	return t.Reg.RelationTupleManager().TransactRelationTuples(ctx, insert, delete)
+}
+
+func (t *ManagerWrapper) FindIdempotencyRecord(ctx context.Context, key string) (*IdempotencyRecord, error) {
+	return t.Reg.RelationTupleManager().FindIdempotencyRecord(ctx, key)
+}
+
+func (t *ManagerWrapper) BatchWrite(ctx context.Context, exec *BatchExecution, key, requestHash, requestPayload string, ttl time.Duration) ([]ItemResult, bool, error) {
+	return t.Reg.RelationTupleManager().BatchWrite(ctx, exec, key, requestHash, requestPayload, ttl)
 }
 
 func (t *ManagerWrapper) TraverseSubjectSetExpansion(ctx context.Context, tuple *RelationTuple, allowedSubjectSets []SubjectSetType) ([]*TraversalResult, error) {

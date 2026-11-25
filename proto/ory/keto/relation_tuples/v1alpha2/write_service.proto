@@ -19,6 +19,23 @@ message TransactRelationTuplesRequest {
   // The write delta for the relationships operated in one single transaction.
   // Either all actions succeed or no change takes effect on error.
   repeated RelationTupleDelta relation_tuple_deltas = 1;
+
+  // Optional request-level idempotency key. Replaying the same key within
+  // its retention window returns the exact first response without writing
+  // again. Reusing a key for different request content is rejected.
+  string idempotency_key = 2;
+}
+
+// Existence precondition for one delta, evaluated in request order.
+enum RelationTupleDeltaCondition {
+  // No precondition; today's behavior.
+  RELATION_TUPLE_DELTA_CONDITION_UNSPECIFIED = 0;
+
+  // The relation must not exist at this point in the batch.
+  RELATION_TUPLE_DELTA_CONDITION_IF_ABSENT = 1;
+
+  // The relation must exist at this point in the batch.
+  RELATION_TUPLE_DELTA_CONDITION_IF_PRESENT = 2;
 }
 
 // Write-delta for a TransactRelationTuplesRequest.
@@ -40,20 +57,41 @@ message RelationTupleDelta {
   Action action = 1;
   // The target RelationTuple.
   RelationTuple relation_tuple = 2;
+
+  // Optional existence precondition for this delta. New capabilities are
+  // optional and leave the default behavior unchanged.
+  RelationTupleDeltaCondition condition = 3;
+
+  // Optional opaque version token previously returned for the same relation.
+  // A mismatch aborts the whole batch with a conflict. Tokens are optimistic
+  // concurrency cursors and never credentials.
+  string expected_version = 4;
+}
+
+// The per-item outcome of one batch delta.
+message BatchItemResult {
+  // Request-order index, equal to the delta index.
+  int32 index = 1;
+
+  // One of: created, unchanged, deleted, not_found.
+  string outcome = 2;
+
+  // Opaque version token for the resulting state of the relation.
+  string version_token = 3;
 }
 
 // The response of a WriteService.TransactRelationTuples rpc.
 message TransactRelationTuplesResponse {
-  // This field is not implemented yet and has no effect.
-  // <!--
-  // The list of the new latest snapshot tokens of the affected RelationTuple,
-  // with the same index as specified in the `relation_tuple_deltas` field of
-  // the TransactRelationTuplesRequest request.
-  //
-  // If the RelationTupleDelta_Action was DELETE
-  // the snaptoken is empty at the same index.
-  // -->
+  // Opaque version tokens, one per delta in request order. These are real,
+  // non-reversible tokens and the length always equals the number of deltas.
   repeated string snaptokens = 1;
+
+  // Per-delta outcomes in request order, with equal count to the request.
+  repeated BatchItemResult results = 2;
+
+  // True when this response is the stored first result of an idempotent
+  // replay (no write happened for this call).
+  bool replayed = 3;
 }
 
 message DeleteRelationTuplesRequest {

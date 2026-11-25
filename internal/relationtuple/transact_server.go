@@ -23,51 +23,95 @@ import (
 
 var _ relationtuplesconnect.WriteServiceHandler = (*WriteHandler)(nil)
 
-func protoTuplesWithAction(deltas []*rts.RelationTupleDelta, action rts.RelationTupleDelta_Action) (filtered []*ketoapi.RelationTuple, err error) {
-	for _, d := range deltas {
-		if d.Action == action {
-			it, err := (&ketoapi.RelationTuple{}).FromDataProvider(d.RelationTuple)
-			if err != nil {
-				return nil, err
-			}
-			filtered = append(filtered, it)
+func protoDeltaToBatchInputs(deltas []*rts.RelationTupleDelta) ([]BatchInput, error) {
+	inputs := make([]BatchInput, len(deltas))
+	for i, d := range deltas {
+		if d == nil {
+			return nil, NewBatchInvalidItemReason(i, "relation_tuple_delta is missing").Herodot()
+		}
+
+		var action ketoapi.PatchAction
+		switch d.Action {
+		case rts.RelationTupleDelta_ACTION_INSERT:
+			action = ketoapi.ActionInsert
+		case rts.RelationTupleDelta_ACTION_DELETE:
+			action = ketoapi.ActionDelete
+		default:
+			return nil, NewBatchInvalidItemReason(i, "unknown or unspecified action").Herodot()
+		}
+
+		it, err := (&ketoapi.RelationTuple{}).FromDataProvider(d.RelationTuple)
+		if err != nil {
+			return nil, err
+		}
+
+		var condition BatchCondition
+		switch d.Condition {
+		case rts.RelationTupleDeltaCondition_RELATION_TUPLE_DELTA_CONDITION_IF_ABSENT:
+			condition = ConditionAbsent
+		case rts.RelationTupleDeltaCondition_RELATION_TUPLE_DELTA_CONDITION_IF_PRESENT:
+			condition = ConditionPresent
+		default:
+			condition = ConditionAny
+		}
+
+		inputs[i] = BatchInput{
+			Action:          action,
+			Tuple:           it,
+			Condition:       condition,
+			ExpectedVersion: d.ExpectedVersion,
 		}
 	}
-	return
+	return inputs, nil
 }
 
 func (h *WriteHandler) TransactRelationTuples(ctx context.Context, req *connect.Request[rts.TransactRelationTuplesRequest]) (*connect.Response[rts.TransactRelationTuplesResponse], error) {
-	insertTuples, err := protoTuplesWithAction(req.Msg.RelationTupleDeltas, rts.RelationTupleDelta_ACTION_INSERT)
+	inputs, err := protoDeltaToBatchInputs(req.Msg.RelationTupleDeltas)
 	if err != nil {
-		return nil, err
+		return nil, batchErrorToHerodot(err)
 	}
 
-	deleteTuples, err := protoTuplesWithAction(req.Msg.RelationTupleDeltas, rts.RelationTupleDelta_ACTION_DELETE)
-	if err != nil {
-		return nil, err
-	}
-
-	err = h.d.RelationTupleManager().Transaction(ctx, func(ctx context.Context) error {
-		its, err := h.d.Mapper().FromTuple(ctx, append(insertTuples, deleteTuples...)...)
-		if err != nil {
-			return err
+	key := req.Msg.IdempotencyKey
+	if key == "" {
+		key = req.Header().Get(IdempotencyKeyHeader)
+		if key == "" {
+			key = req.Header().Get(IdempotencyKeyHeaderAlt)
 		}
-		return h.d.RelationTupleManager().TransactRelationTuples(ctx, its[:len(insertTuples)], its[len(insertTuples):])
+	}
+
+	resp, err := NewBatchWriteService(h.d).Execute(ctx, &BatchWriteRequest{
+		Inputs:         inputs,
+		IdempotencyKey: key,
 	})
-
 	if err != nil {
-		return nil, err
+		return nil, batchErrorToHerodot(err)
 	}
 
-	trace.SpanFromContext(ctx).AddEvent(events.NewRelationtuplesChanged(ctx))
-
-	snaptokens := make([]string, len(insertTuples))
-	for i := range insertTuples {
-		snaptokens[i] = "not yet implemented"
+	results := make([]*rts.BatchItemResult, len(resp.Results))
+	snaptokens := make([]string, len(resp.Results))
+	for i, r := range resp.Results {
+		results[i] = &rts.BatchItemResult{
+			Index:        int32(r.Index),
+			Outcome:      string(r.Outcome),
+			VersionToken: r.VersionToken,
+		}
+		snaptokens[i] = r.VersionToken
 	}
+
 	return connect.NewResponse(&rts.TransactRelationTuplesResponse{
 		Snaptokens: snaptokens,
+		Results:    results,
+		Replayed:   resp.Replayed,
 	}), nil
+}
+
+// batchErrorToHerodot keeps the connect error classification identical to the
+// HTTP entry point.
+func batchErrorToHerodot(err error) error {
+	if be, ok := AsBatchError(err); ok {
+		return be.Herodot()
+	}
+	return err
 }
 
 func (h *WriteHandler) DeleteRelationTuples(ctx context.Context, req *connect.Request[rts.DeleteRelationTuplesRequest]) (*connect.Response[rts.DeleteRelationTuplesResponse], error) {
@@ -240,15 +284,6 @@ func (h *WriteHandler) deleteRelations(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func internalTuplesWithAction(deltas []*ketoapi.PatchDelta, action ketoapi.PatchAction) (filtered []*ketoapi.RelationTuple) {
-	for _, d := range deltas {
-		if d.Action == action {
-			filtered = append(filtered, d.RelationTuple)
-		}
-	}
-	return
-}
-
 // swagger:route PATCH /admin/relation-tuples relationship patchRelationships
 //
 // # Patch Multiple Relationships
@@ -279,42 +314,38 @@ func (h *WriteHandler) patchRelationTuples(w http.ResponseWriter, r *http.Reques
 		h.d.Writer().WriteError(w, r, herodot.ErrBadRequest().WithError(err.Error()))
 		return
 	}
-	for _, d := range deltas {
-		if d.RelationTuple == nil {
-			h.d.Writer().WriteError(w, r, herodot.ErrBadRequest().WithError("relation_tuple is missing"))
-			return
-		}
-		if err := d.RelationTuple.Validate(); err != nil {
-			h.d.Writer().WriteError(w, r, err)
-			return
-		}
 
-		switch d.Action {
-		case ketoapi.ActionInsert, ketoapi.ActionDelete:
-		default:
-			h.d.Writer().WriteError(w, r, herodot.ErrBadRequest().WithError("unknown action "+string(d.Action)))
+	// Preserve the historical nil-tuple validation message and early reject.
+	for i, d := range deltas {
+		if d == nil || d.RelationTuple == nil {
+			h.d.Writer().WriteError(w, r, NewBatchInvalidItemReason(i, "relation_tuple is missing").Herodot())
 			return
 		}
 	}
 
-	insertTuples := internalTuplesWithAction(deltas, ketoapi.ActionInsert)
-	deleteTuples := internalTuplesWithAction(deltas, ketoapi.ActionDelete)
-
-	err := h.d.RelationTupleManager().Transaction(ctx, func(ctx context.Context) error {
-		its, err := h.d.Mapper().FromTuple(ctx, append(insertTuples, deleteTuples...)...)
-		if err != nil {
-			h.d.Logger().WithError(err).Errorf("got an error while mapping fields to UUID")
-			return err
-		}
-		return h.d.RelationTupleManager().TransactRelationTuples(ctx, its[:len(insertTuples)], its[len(insertTuples):])
-	})
-
+	key := idempotencyKeyFromRequest(r, "")
+	inputs, err := deltasToInputs(deltas)
 	if err != nil {
-		h.d.Writer().WriteError(w, r, err)
+		h.writeBatchError(w, r, err)
 		return
 	}
 
-	trace.SpanFromContext(ctx).AddEvent(events.NewRelationtuplesChanged(ctx))
+	resp, err := NewBatchWriteService(h.d).Execute(ctx, &BatchWriteRequest{
+		Inputs:         inputs,
+		IdempotencyKey: key,
+	})
+	if err != nil {
+		h.writeBatchError(w, r, err)
+		return
+	}
 
-	w.WriteHeader(http.StatusNoContent)
+	// Default wire behavior is unchanged: 204 No Content. Clients opting into
+	// the rich contract (detail parameter, Prefer header, idempotency key or
+	// conditional fields) receive 200 with request-order outcomes.
+	if !wantsDetailedResponse(r, deltas, key) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	h.d.Writer().WriteCode(w, r, http.StatusOK, toJSONResponse(key, resp))
 }

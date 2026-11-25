@@ -123,6 +123,48 @@ type RelationQuery struct {
 type PatchDelta struct {
 	Action        PatchAction    `json:"action"`
 	RelationTuple *RelationTuple `json:"relation_tuple"`
+
+	// Optional existence precondition: "if_absent" or "if_present".
+	Condition string `json:"condition,omitempty"`
+	// Optional opaque version token for optimistic conditional writes.
+	ExpectedVersion string `json:"expected_version,omitempty"`
+}
+
+// UnmarshalJSON accepts common field-name aliases for the optional batch
+// fields while preserving the historical {action, relation_tuple} shape.
+func (p *PatchDelta) UnmarshalJSON(data []byte) error {
+	type alias PatchDelta
+	aux := struct {
+		*alias
+		Precondition       string `json:"precondition"`
+		If                 string `json:"if"`
+		Require            string `json:"require"`
+		VersionToken       string `json:"version_token"`
+		ExpectedVersionTok string `json:"expected_version_token"`
+		IfMatch            string `json:"if_match"`
+	}{
+		alias: (*alias)(p),
+	}
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	if p.Condition == "" {
+		for _, c := range []string{aux.Precondition, aux.If, aux.Require} {
+			if c != "" {
+				p.Condition = c
+				break
+			}
+		}
+	}
+	if p.ExpectedVersion == "" {
+		for _, t := range []string{aux.VersionToken, aux.ExpectedVersionTok, aux.IfMatch} {
+			if t != "" {
+				p.ExpectedVersion = t
+				break
+			}
+		}
+	}
+	return nil
 }
 
 // swagger:enum PatchAction
